@@ -1,13 +1,14 @@
-import time
 import logging
+import time
 from string import Template
 
+from great_expectations.dataset.sqlalchemy_dataset import SqlAlchemyDataset
 from great_expectations.datasource import Datasource
 from great_expectations.datasource.types import BatchId
-from great_expectations.dataset.sqlalchemy_dataset import SqlAlchemyDataset
-from .generator.query_generator import QueryGenerator
 from great_expectations.exceptions import DatasourceInitializationError
 from great_expectations.types import ClassConfig
+
+from .generator.query_generator import QueryGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +45,12 @@ class SqlAlchemyDatasource(Datasource):
             A complete datasource configuration.
 
         """
+
         if generators is None:
-            generators = {
-                "default": {
-                    "class_name": "TableGenerator"
-                }
-            }
+            generators = {"default": {"class_name": "TableGenerator"}}
 
         if data_asset_type is None:
-            data_asset_type = ClassConfig(
-                class_name="SqlAlchemyDataset")
+            data_asset_type = ClassConfig(class_name="SqlAlchemyDataset")
         else:
             try:
                 data_asset_type = ClassConfig(**data_asset_type)
@@ -62,17 +59,29 @@ class SqlAlchemyDatasource(Datasource):
                 pass
 
         configuration = kwargs
-        configuration.update({
-            "data_asset_type": data_asset_type,
-            "generators": generators,
-        })
+        configuration.update(
+            {"data_asset_type": data_asset_type, "generators": generators,}
+        )
+
         return configuration
 
-    def __init__(self, name="default", data_context=None, data_asset_type=None, credentials=None, generators=None, **kwargs):
+    def __init__(
+        self,
+        name="default",
+        data_context=None,
+        data_asset_type=None,
+        credentials=None,
+        generators=None,
+        **kwargs,
+    ):
         if not sqlalchemy:
-            raise DatasourceInitializationError(name, "ModuleNotFoundError: No module named 'sqlalchemy'")
+            raise DatasourceInitializationError(
+                name, "ModuleNotFoundError: No module named 'sqlalchemy'"
+            )
 
-        configuration_with_defaults = SqlAlchemyDatasource.build_configuration(data_asset_type, generators, **kwargs)
+        configuration_with_defaults = SqlAlchemyDatasource.build_configuration(
+            data_asset_type, generators, **kwargs
+        )
         data_asset_type = configuration_with_defaults.pop("data_asset_type")
         generators = configuration_with_defaults.pop("generators")
         super(SqlAlchemyDatasource, self).__init__(
@@ -80,17 +89,17 @@ class SqlAlchemyDatasource(Datasource):
             data_context=data_context,
             data_asset_type=data_asset_type,
             generators=generators,
-            **configuration_with_defaults)
+            **configuration_with_defaults,
+        )
 
         if credentials is not None:
-            self._datasource_config.update({
-                "credentials": credentials
-            })
+            self._datasource_config.update({"credentials": credentials})
         else:
             credentials = {}
 
         try:
             # if an engine was provided, use that
+
             if "engine" in kwargs:
                 self.engine = kwargs.pop("engine")
 
@@ -99,6 +108,7 @@ class SqlAlchemyDatasource(Datasource):
                 connection_string = kwargs.pop("connection_string")
                 self.engine = create_engine(connection_string, **kwargs)
                 self.engine.connect()
+                self.drivername = self.engine.name
             elif "url" in credentials:
                 url = credentials.pop("url")
                 # TODO perhaps we could carefully regex out the driver from the
@@ -121,12 +131,14 @@ class SqlAlchemyDatasource(Datasource):
 
     def _get_sqlalchemy_connection_options(self, **kwargs):
         drivername = None
+
         if "credentials" in self._datasource_config:
             credentials = self._datasource_config["credentials"]
         else:
             credentials = {}
 
         # if a connection string or url was provided in the profile, use that
+
         if "connection_string" in credentials:
             options = credentials["connection_string"]
         elif "url" in credentials:
@@ -170,13 +182,13 @@ class SqlAlchemyDatasource(Datasource):
         data_asset_type = self._get_data_asset_class(data_asset_type_config)
 
         if not issubclass(data_asset_type, SqlAlchemyDataset):
-            raise ValueError("SqlAlchemyDatasource cannot instantiate batch with data_asset_type: '%s'. It "
-                             "must be a subclass of SqlAlchemyDataset." % data_asset_type.__name__)
+            raise ValueError(
+                "SqlAlchemyDatasource cannot instantiate batch with data_asset_type: '%s'. It "
+                "must be a subclass of SqlAlchemyDataset." % data_asset_type.__name__
+            )
 
         # We need to build a batch_id to be used in the dataframe
-        batch_id = BatchId({
-            "timestamp": time.time()
-        })
+        batch_id = BatchId({"timestamp": time.time()})
 
         if "schema" in batch_kwargs:
             schema = batch_kwargs["schema"]
@@ -184,22 +196,30 @@ class SqlAlchemyDatasource(Datasource):
             schema = None
 
         if "table" in batch_kwargs:
-            limit = batch_kwargs.get('limit')
-            offset = batch_kwargs.get('offset')
+            limit = batch_kwargs.get("limit")
+            offset = batch_kwargs.get("offset")
+
             if limit is not None or offset is not None:
                 logger.info("Generating query from table batch_kwargs based on limit and offset")
-                raw_query = sqlalchemy.select([sqlalchemy.text("*")])\
-                    .select_from(sqlalchemy.schema.Table(batch_kwargs['table'], sqlalchemy.MetaData(), schema=schema))\
-                    .offset(offset)\
+                raw_query = (
+                    sqlalchemy.select([sqlalchemy.text("*")])
+                    .select_from(
+                        sqlalchemy.schema.Table(
+                            batch_kwargs["table"], sqlalchemy.MetaData(), schema=schema
+                        )
+                    )
+                    .offset(offset)
                     .limit(limit)
+                )
                 query = str(raw_query.compile(self.engine, compile_kwargs={"literal_binds": True}))
+
                 return data_asset_type(
                     custom_sql=query,
                     engine=self.engine,
                     data_context=self._data_context,
                     expectation_suite=expectation_suite,
                     batch_kwargs=batch_kwargs,
-                    batch_id=batch_id
+                    batch_id=batch_id,
                 )
 
             else:
@@ -210,19 +230,23 @@ class SqlAlchemyDatasource(Datasource):
                     data_context=self._data_context,
                     expectation_suite=expectation_suite,
                     batch_kwargs=batch_kwargs,
-                    batch_id=batch_id
+                    batch_id=batch_id,
                 )
 
         elif "query" in batch_kwargs:
             if "limit" in batch_kwargs or "offset" in batch_kwargs:
-                logger.warning("Limit and offset parameters are ignored when using query-based batch_kwargs; consider "
-                               "adding limit and offset directly to the generated query.")
+                logger.warning(
+                    "Limit and offset parameters are ignored when using query-based batch_kwargs; consider "
+                    "adding limit and offset directly to the generated query."
+                )
+
             if "bigquery_temp_table" in batch_kwargs:
                 table_name = batch_kwargs.get("bigquery_temp_table")
             else:
                 table_name = None
-            
+
             query = Template(batch_kwargs["query"]).safe_substitute(**kwargs)
+
             return data_asset_type(
                 custom_sql=query,
                 engine=self.engine,
@@ -230,8 +254,10 @@ class SqlAlchemyDatasource(Datasource):
                 data_context=self._data_context,
                 expectation_suite=expectation_suite,
                 batch_kwargs=batch_kwargs,
-                batch_id=batch_id
+                batch_id=batch_id,
             )
 
         else:
-            raise ValueError("Invalid batch_kwargs: exactly one of 'table' or 'query' must be specified")
+            raise ValueError(
+                "Invalid batch_kwargs: exactly one of 'table' or 'query' must be specified"
+            )
